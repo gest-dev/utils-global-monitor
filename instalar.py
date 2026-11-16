@@ -44,12 +44,13 @@ def main():
     # Desktop Exec is parsed by GLib, not a shell. Quote its path explicitly.
     script = str(destination / 'monitor.py').replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%')
     executable = str(Path(sys.executable).resolve()).replace('"', '\\"')
+    logo = destination / 'icons/monitor-global-logo-v1.png'
     entry = f'''[Desktop Entry]
 Type=Application
 Name=Monitor Global
 Comment=Moedas, mercados, clima, agenda e notificações
 Exec="{executable}" "{script}"
-Icon={APP}
+Icon={logo}
 Terminal=false
 Categories=Utility;Finance;Office;
 StartupNotify=true
@@ -79,7 +80,7 @@ Exec="{executable}" "{script}" --page=appearance
 Type=Application
 Name=Monitor Global · lembretes
 Exec="{executable}" "{script}" --service
-Icon={APP}
+Icon={logo}
 Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true

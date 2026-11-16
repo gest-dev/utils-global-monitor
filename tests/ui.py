@@ -93,6 +93,69 @@ def exercise():
             check(len(app.store.records('asset')) == before + 1, 'Asset form saves an indicator')
             asset = next(row for row in app.store.records('asset') if row['symbol'] == 'GBP-BRL')
             check(asset['pinned'], 'New indicator can be pinned')
+            for kind, replacement in [('fx', 'CAD-BRL'), ('crypto', 'ETH-EUR'), ('stock', 'VALE3')]:
+                current = next(row for row in app.store.records('asset') if row['kind'] == kind)
+                form = window.asset_form(kind, current)
+                entry(form, 'Código / par', replacement.lower())
+                entry(form, 'Nome', 'Nome de teste ' + replacement)
+                form._save()
+                saved = app.store.get('asset', current['id'])
+                check(saved['symbol'] == replacement, kind + ': editing replaces the displayed code')
+                check(saved['name'] == 'Nome de teste ' + replacement, kind + ': editable name persists')
+                check(next(row for row in app.engine.state()['assets'] if row['id'] == current['id'])['symbol'] == replacement,
+                      kind + ': panel state publishes the edited code')
+            previous_city = next(row for row in app.store.records('asset') if row['kind'] == 'weather')
+            form = window.asset_form('weather', {**previous_city, 'symbol': 'SP'})
+            form.city_search.select({'name': 'Vitória da Conquista, Bahia, Brasil',
+                                     'latitude': -14.86, 'longitude': -40.84})
+            city_label = next(row for row in children(form.body) if isinstance(row, Adw.EntryRow)
+                              and row.get_title() == 'Rótulo na barra')
+            check(city_label.get_text() == 'VDC', 'Changing an existing city generates the short VDC label')
+            form._save()
+            saved = {**app.store.get('asset', previous_city['id']), 'id': previous_city['id']}
+            check(saved['symbol'] == 'VDC' and saved['latitude'] == -14.86,
+                  'City name, label and coordinates are saved together')
+            form = window.asset_form('weather', saved)
+            city_label = next(row for row in children(form.body) if isinstance(row, Adw.EntryRow)
+                              and row.get_title() == 'Rótulo na barra')
+            city_label.set_text('ABCD')
+            check(city_label.get_text() == 'ABC', 'Weather label input prevents more than three letters')
+            entry(form, 'Rótulo na barra', 'VC')
+            form._save()
+            check(app.store.get('asset', saved['id'])['symbol'] == 'VC', 'Short weather label remains customizable')
+            chart_requests = []
+            background = window.background
+            window.background = lambda function, success, failure: chart_requests.append((function, success, failure))
+            stock = next(row for row in app.store.records('asset') if row['kind'] == 'stock')
+            form = app.open_asset(stock['id'])
+            chart = form.chart_panel
+            check(window.page == 'stock' and form.get_title() == stock['name'], 'Opening an asset navigates to its page and modal')
+            check(app.open_asset(stock['id']) is form, 'Repeated asset opens reuse the same modal')
+            check(chart.period == '1mo' and len(chart_requests) == 1, 'Default chart requests one month once')
+            chart.period_buttons['1y'].set_active(True)
+            check(chart.period == '1y' and len(chart_requests) == 2, 'Annual selection makes exactly one new request')
+            fixture = {'points': [[1704153600, 10], [1704240000, 11], [1706832000, 12]],
+                       'source': 'TEST ONLY', 'interval': 'daily', 'note': 'Fixture isolada', 'warning': ''}
+            chart_requests[0][1](fixture)
+            check(chart.data is None, 'Old period responses cannot replace the annual chart')
+            chart_requests[1][1](fixture)
+            check(len(chart.chart.points) == 3 and not chart.spinner.get_spinning(), 'Chart renders returned points and stops loading')
+            chart.resolution.set_selected(2)
+            check(len(chart.chart.points) == 2, 'Monthly view uses the last available close of each month')
+            chart.chart._motion(None, 100, 50)
+            check('2024' in chart.hover.get_text() and 'R$' in chart.hover.get_text(), 'Hover reports a date and formatted value')
+            check('Dados disponíveis' in chart.coverage.get_text(), 'Chart reports its actual date coverage')
+            chart.reload()
+            form.close()
+            chart_requests[-1][1](fixture)
+            check(chart._closed and chart.data is None, 'Closed charts ignore pending network responses')
+            window.background = background
+            try:
+                app.open_asset('missing-id')
+            except ValueError:
+                check(True, 'Missing assets fail without opening a wrong modal')
+            else:
+                check(False, 'Missing asset should fail')
             form = window.asset_form('weather')
             form._save()
             check('Selecione uma cidade' in form.error.get_text(), 'Weather requires a city or manual coordinates')
@@ -201,6 +264,45 @@ def exercise():
             entry(form, 'Título', 'Lembrete editado')
             form._save()
             check(app.store.get('reminder', reminder['id'])['title'] == 'Lembrete editado', 'Reminder edits preserve identity')
+            clock = time.time()
+            fixture_ids = []
+            for title, due, state, enabled in [('TESTE atraso', clock - 3600, 'notified', True),
+                                               ('TESTE pausado', clock - 7200, 'pending', False),
+                                               ('TESTE concluído', clock - 1800, 'done', False),
+                                               ('TESTE virada de horário', clock + 1, 'pending', True)]:
+                fixture_ids.append(app.store.save_reminder({'title': title, 'due': due, 'timezone': 'UTC',
+                                                           'status': state, 'enabled': enabled}))
+            late, paused, done, boundary = fixture_ids
+            window.navigate('agenda')
+            check(len(window._agenda_buttons) == 7, 'Agenda has seven clickable filter tabs')
+            window._agenda_buttons['overdue'].set_active(True)
+            check(window._agenda_visible_ids == [late], 'Overdue tab shows unfinished late reminders after notice generation')
+            check('(1)' in window._agenda_buttons['overdue'].get_label(), 'Overdue tab displays its count')
+            window._agenda_buttons['paused'].set_active(True)
+            check(window._agenda_visible_ids == [paused], 'Paused reminders have a separate tab')
+            window._agenda_buttons['done'].set_active(True)
+            check(window._agenda_visible_ids == [done], 'Completed reminders have a separate tab')
+            window._agenda_buttons['upcoming'].set_active(True)
+            check(boundary in window._agenda_visible_ids and late not in window._agenda_visible_ids,
+                  'Upcoming tab excludes past reminders')
+            with patch('global_monitor.ui.time.time', return_value=clock + 2):
+                window._agenda_clock_tick()
+                check(boundary not in window._agenda_visible_ids and window._agenda_mode == 'upcoming',
+                      'Clock moves newly expired reminders out of Upcoming without changing the tab')
+                window._agenda_buttons['overdue'].set_active(True)
+                check(set(window._agenda_visible_ids) == {late, boundary}, 'Clock moves expired reminders into Overdue')
+                window._agenda_search.set_text('TESTE atraso')
+                window._filter_agenda()
+                check(window._agenda_visible_ids == [late], 'Search works inside the Overdue tab')
+                check('(1)' in window._agenda_buttons['overdue'].get_label(), 'Tab count follows search results')
+                window._agenda_search.set_text('')
+                window._filter_agenda()
+            window._agenda_buttons['calendar'].set_active(True)
+            check(window._calendar.get_visible(), 'Calendar remains available as a tab')
+            for identity in fixture_ids:
+                app.store.delete('reminder', identity)
+            window._agenda_buttons['all'].set_active(True)
+            check(window._agenda_visible_ids == [reminder['id']], 'All tab preserves the actual reminder after fixture cleanup')
             form = window.alert_form(asset_id=asset['id'])
             entry(form, 'Título do alerta', 'Alerta teste')
             entry(form, 'Limite', '9999')
@@ -245,6 +347,7 @@ def exercise():
         check(len(app.store.records('reminder')) == before + 1, 'Native snooze action schedules a reminder')
         window.close()
         check(app.window is None, 'Closing releases the window')
+        check(window._agenda_timer == 0, 'Closing releases the agenda clock timer')
         check(app.engine.state()['assets'], 'Background service remains usable')
         print(f'MONITOR_GLOBAL_UI_OK: {count} verificações.', flush=True)
         app.quit()

@@ -1,4 +1,6 @@
 import Gio from 'gi://Gio';
+import Clutter from 'gi://Clutter';
+import GLib from 'gi://GLib';
 import Shell from 'gi://Shell';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as Scripting from 'resource:///org/gnome/shell/ui/scripting.js';
@@ -38,6 +40,17 @@ export async function run() {
         }
     }
     check(monitor._button === panelButton, 'Moving the indicator preserves the same button and menu');
+    const codes = {fx: 'CAD-BRL', crypto: 'ETH-EUR', stock: 'VALE3', weather: 'VDC'};
+    monitor._state.settings.display = 'both';
+    monitor._state.settings.bar_limit = 12;
+    for (const row of monitor._state.assets) {
+        row.symbol = codes[row.kind];
+        row.pinned = true;
+    }
+    monitor._render();
+    const labels = monitor._box.get_children().map(part => part.get_child()?.get_last_child()?.get_text?.() ?? '');
+    for (const code of Object.values(codes))
+        check(labels.some(text => text.startsWith(code + ' ')), `Panel displays updated code: ${code}`);
     monitor._receive(original);
     monitor._launch('overview');
     const windows = () => global.get_window_actors().map(actor => actor.meta_window)
@@ -49,6 +62,37 @@ export async function run() {
     monitor._launch('overview');
     await Scripting.sleep(500);
     check(windows().length === 1, 'One window after repeated launch');
+    const firstIndicator = monitor._box.get_first_child();
+    check(!firstIndicator.get_child().get_last_child().clutter_text.get_layout().is_ellipsized(), 'Panel values remain fully visible');
+    const targetAsset = monitor._state.assets.find(row => row.enabled !== false && row.pinned);
+    const pointer = Clutter.get_default_backend().get_default_seat().create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
+    const [actorX, actorY] = firstIndicator.get_transformed_position();
+    pointer.notify_absolute_motion(GLib.get_monotonic_time(), actorX + firstIndicator.width / 2, actorY + firstIndicator.height / 2);
+    await Scripting.sleep(900);
+    check(Boolean(monitor._tooltip), 'Hovering a value shows asset details');
+    pointer.notify_button(GLib.get_monotonic_time(), Clutter.BUTTON_PRIMARY, Clutter.ButtonState.PRESSED);
+    pointer.notify_button(GLib.get_monotonic_time(), Clutter.BUTTON_PRIMARY, Clutter.ButtonState.RELEASED);
+    for (let attempt = 0; attempt < 25 && windows().length < 2; attempt++)
+        await Scripting.sleep(200);
+    check(windows().some(window => window.get_title() === targetAsset.name), 'Clicking a panel value opens its asset modal');
+    check(!monitor._button.menu.isOpen && !monitor._tooltip, 'Asset click closes tooltip and keeps menu closed');
+    await Scripting.sleep(2000);
+    const chartStream = Gio.File.new_for_path('/tmp/monitor-global-chart-preview.png')
+        .replace(null, false, Gio.FileCreateFlags.NONE, null);
+    await new Promise((resolve, reject) => {
+        const shooter = new Shell.Screenshot();
+        shooter.screenshot(false, chartStream, (object, result) => {
+            try { object.screenshot_finish(result); resolve(); } catch (error) { reject(error); }
+        });
+    });
+    chartStream.close(null);
+    monitor._openDetails(targetAsset.id);
+    await Scripting.sleep(400);
+    check(windows().length === 2, 'Repeated panel clicks reuse one main window and one modal');
+    const modal = windows().find(window => window.get_title() === targetAsset.name);
+    modal.delete(global.get_current_time());
+    await Scripting.sleep(200);
+    check(windows().length === 1, 'Closing asset modal preserves the application window');
     const stream = Gio.File.new_for_path('/tmp/monitor-global-preview.png')
         .replace(null, false, Gio.FileCreateFlags.NONE, null);
     await new Promise((resolve, reject) => {

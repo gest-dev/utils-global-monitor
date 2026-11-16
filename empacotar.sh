@@ -2,6 +2,7 @@
 set -euo pipefail
 pasta="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PYTHONDONTWRITEBYTECODE=1 python3 "$pasta/tests/test_core.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$pasta/tests/test_history.py"
 python3 - "$pasta" <<'PY'
 import ast
 from pathlib import Path

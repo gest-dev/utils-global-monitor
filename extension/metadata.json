@@ -3,6 +3,6 @@
   "name": "Monitor Global",
   "description": "Moedas, cripto, bolsa, clima, agenda e notificações em uma barra configurável e uma janela nativa.",
   "shell-version": ["50"],
-  "version": 2,
+  "version": 7,
   "url": ""
 }

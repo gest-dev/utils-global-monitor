@@ -1,6 +1,7 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -55,6 +56,8 @@ export default class MonitorGlobal extends Extension {
             this._pull();
         });
         Main.panel.addToStatusArea(this.uuid, this._button, 1, 'right');
+        // Each child handles its own click; a separate arrow opens the menu.
+        this._button._clickGesture.set_enabled(false);
         this._startService();
         Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION, Gio.DBusProxyFlags.DO_NOT_AUTO_START,
             null, APP, PATH, APP, this._cancel, (_source, result) => {
@@ -91,9 +94,10 @@ export default class MonitorGlobal extends Extension {
         this._launch(null);
     }
 
-    _launch(page) {
+    _launch(page, assetId = null) {
         try {
-            const args = ['python3', this.dir.get_child('monitor.py').get_path(), page ? `--page=${page}` : '--service'];
+            const args = ['python3', this.dir.get_child('monitor.py').get_path(),
+                assetId ? `--asset=${assetId}` : page ? `--page=${page}` : '--service'];
             const child = Gio.Subprocess.new(args, Gio.SubprocessFlags.NONE);
             child.wait_check_async(null, (process, result) => {
                 try {
@@ -136,18 +140,66 @@ export default class MonitorGlobal extends Extension {
         }
     }
 
-    _indicator(kind, text, settings, color) {
-        const part = new St.BoxLayout({style_class: 'global-monitor-indicator'});
+    _openDetails(identity) {
+        this._hideTooltip();
+        this._button.menu.close();
+        this._launch(null, identity);
+    }
+
+    _hideTooltip() {
+        if (this._tooltipTimer)
+            GLib.source_remove(this._tooltipTimer);
+        this._tooltipTimer = 0;
+        this._tooltip?.destroy();
+        this._tooltip = null;
+    }
+
+    _queueTooltip(actor, message) {
+        this._hideTooltip();
+        this._tooltipTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 450, () => {
+            this._tooltipTimer = 0;
+            if (!this._alive || !actor.hover || this._button.menu.isOpen)
+                return GLib.SOURCE_REMOVE;
+            const tooltip = new St.Label({text: message, style_class: 'global-monitor-tooltip', reactive: false});
+            tooltip.clutter_text.line_wrap = true;
+            Main.uiGroup.add_child(tooltip);
+            this._tooltip = tooltip;
+            const monitor = Main.layoutManager.findMonitorForActor(actor) ?? Main.layoutManager.primaryMonitor;
+            tooltip.set_style(`max-width: ${Math.max(240, monitor.width - 32)}px;`);
+            const [x, y] = actor.get_transformed_position();
+            const [, naturalWidth] = tooltip.get_preferred_width(-1);
+            tooltip.set_position(Math.max(monitor.x + 8, Math.min(x, monitor.x + monitor.width - naturalWidth - 8)),
+                y + actor.height + 8);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _indicator(kind, text, settings, color, item = null) {
+        const part = new St.Button({style_class: 'global-monitor-indicator', can_focus: true,
+            track_hover: true, accessible_name: item ? `${item.name}. ${text}. Abrir detalhes e gráfico.` :
+                kind === 'agenda' ? 'Abrir agenda' : 'Abrir Monitor Global'});
+        const content = new St.BoxLayout({style_class: 'global-monitor-indicator-content'});
+        part.set_child(content);
         if (settings.display !== 'text') {
-            part.add_child(new St.Icon({
+            content.add_child(new St.Icon({
                 gicon: new Gio.FileIcon({file: this.dir.get_child('icons').get_child(`${kind}-symbolic.svg`)}),
                 icon_size: settings.icon_size ?? 16, y_align: Clutter.ActorAlign.CENTER,
             }));
         }
-        part.add_child(new St.Label({text, y_align: Clutter.ActorAlign.CENTER}));
+        const valueLabel = new St.Label({text, y_align: Clutter.ActorAlign.CENTER});
+        valueLabel.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+        content.add_child(valueLabel);
         if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color))
             part.set_style(`color: ${color}; font-size: ${Math.max(9, Math.min(20, settings.font_size ?? 11))}px;`);
         this._box.add_child(part);
+        part.connect('clicked', () => item ? this._openDetails(item.id) : this._launch(kind === 'agenda' ? 'agenda' : 'overview'));
+        if (item) {
+            const quote = item.quote ?? {};
+            const date = Number.isFinite(quote.stamp) ? new Date(quote.stamp * 1000).toLocaleString('pt-BR') : 'aguardando consulta';
+            const hint = `${item.name} · ${item.symbol}\n${formatValue(quote.value, quote.unit)} · ${quote.source ?? 'Consultando fonte'}\nDado de ${date}\n${quote.error || 'Clique para abrir detalhes e gráfico.'}`;
+            part.connect('notify::hover', () => part.hover ? this._queueTooltip(part, hint) : this._hideTooltip());
+        }
+        return part;
     }
 
     _syncPosition(position) {
@@ -164,6 +216,7 @@ export default class MonitorGlobal extends Extension {
     }
 
     _render() {
+        this._hideTooltip();
         this._box.destroy_all_children();
         if (!this._state) {
             this._indicator('globe', 'Global', {icon_size: 16, display: 'both'}, '#4ade80');
@@ -181,21 +234,29 @@ export default class MonitorGlobal extends Extension {
                 text += ` ${quote.change >= 0 ? '▲' : '▼'}${Math.abs(quote.change).toFixed(1).replace('.', ',')}%`;
             if (quote.error)
                 text += ' ·';
-            this._indicator(item.kind, text, settings, settings.colors[item.kind]);
+            this._indicator(item.kind, text, settings, settings.colors[item.kind], item);
         }
         const pending = reminders.filter(row => row.enabled && row.status !== 'done');
         if (settings.agenda_bar)
             this._indicator('agenda', String(pending.length), settings, settings.colors.agenda);
         if (!selected.length && !settings.agenda_bar)
             this._indicator('globe', 'Global', settings, settings.accent);
+        const arrow = new St.Button({style_class: 'global-monitor-indicator', can_focus: true,
+            accessible_name: 'Menu do Monitor Global', child: new St.Icon({icon_name: 'pan-down-symbolic', icon_size: 12})});
+        arrow.connect('clicked', () => {
+            this._hideTooltip();
+            this._button.menu.toggle();
+        });
+        this._box.add_child(arrow);
         if (this._summary) {
             this._summary.removeAll();
             const errors = assets.filter(item => item.enabled !== false && item.quote?.error).length;
             this._status.label.text = errors ? `${errors} fonte(s) indisponível(is) · veja os detalhes na janela` : 'Fontes conectadas · horários e atrasos na janela';
             for (const item of selected.slice(0, 4)) {
                 const quote = item.quote ?? {};
-                this._summary.addMenuItem(new PopupMenu.PopupMenuItem(
-                    `${item.symbol}: ${formatValue(quote.value, quote.unit)} · ${quote.source ?? 'consultando…'}`, {reactive: false}));
+                const row = new PopupMenu.PopupMenuItem(`${item.symbol}: ${formatValue(quote.value, quote.unit)} · ${quote.source ?? 'consultando…'}`);
+                row.connect('activate', () => this._openDetails(item.id));
+                this._summary.addMenuItem(row);
             }
             if (pending.length) {
                 const next = pending.sort((a, b) => a.due - b.due)[0];
@@ -208,6 +269,7 @@ export default class MonitorGlobal extends Extension {
 
     disable() {
         this._alive = false;
+        this._hideTooltip();
         this._cancel?.cancel();
         if (this._timer)
             GLib.source_remove(this._timer);

@@ -12,8 +12,9 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'extension'))
 from global_monitor import providers
+from global_monitor.agenda import agenda_view, overdue_text, reminder_status
 from global_monitor.engine import Engine, validate_alert, validate_integration
-from global_monitor.store import Store, next_occurrence, validate_asset
+from global_monitor.store import Store, next_occurrence, validate_asset, weather_symbol
 
 
 class CoreTests(unittest.TestCase):
@@ -115,6 +116,73 @@ class CoreTests(unittest.TestCase):
         self.reminder(due=2000, lead=10)
         self.assertEqual(self.store.due_reminders(1399), 0)
         self.assertEqual(self.store.due_reminders(1400), 1)
+
+    def test_agenda_status_changes_at_due_time(self):
+        item = {'due': 1000, 'status': 'pending', 'enabled': True}
+        self.assertEqual(reminder_status(item, 999), 'pending')
+        self.assertEqual(reminder_status(item, 1000), 'overdue')
+        self.assertEqual(reminder_status(item, 1001), 'overdue')
+        self.assertEqual(reminder_status({**item, 'enabled': False}, 2000), 'paused')
+        self.assertEqual(reminder_status({**item, 'enabled': False, 'status': 'done'}, 2000), 'done')
+
+    def test_agenda_generated_notice_is_not_completion(self):
+        identity = self.reminder(due=2000, lead=10)
+        self.store.due_reminders(1400)
+        item = self.store.get('reminder', identity)
+        self.assertEqual(reminder_status(item, 1500), 'notified')
+        self.assertEqual(reminder_status(item, 2001), 'overdue')
+        self.assertEqual(self.store.get('reminder', identity)['status'], 'notified')
+
+    def test_agenda_filters_exclude_overdue_from_upcoming(self):
+        items = [{'id': key, 'due': due, 'status': status, 'enabled': enabled,
+                  'title': key, 'timezone': 'UTC'} for key, due, status, enabled in (
+                     ('past', 900, 'notified', True), ('future', 1100, 'pending', True),
+                     ('done', 800, 'done', False), ('paused', 700, 'pending', False))]
+        for mode, expected in [('upcoming', 'future'), ('overdue', 'past'), ('done', 'done'), ('paused', 'paused')]:
+            rows, counts = agenda_view(items, mode, now=1000)
+            self.assertEqual([row['id'] for row in rows], [expected])
+            self.assertEqual(counts['all'], 4)
+            self.assertEqual(counts[mode], 1)
+
+    def test_agenda_today_uses_each_reminder_timezone(self):
+        now = datetime(2026, 11, 16, 1, tzinfo=ZoneInfo('UTC')).timestamp()
+        items = [{'id': 'br', 'due': now - 1800, 'timezone': 'America/Sao_Paulo', 'title': 'Brasil'},
+                 {'id': 'jp', 'due': now + 1800, 'timezone': 'Asia/Tokyo', 'title': 'Japão'}]
+        rows, _counts = agenda_view(items, 'today', now=now)
+        self.assertEqual(len(rows), 2)
+
+    def test_agenda_calendar_includes_done_and_paused_on_selected_date(self):
+        day = datetime(2026, 11, 15, 12, tzinfo=ZoneInfo('UTC'))
+        items = [{'due': day.timestamp(), 'timezone': 'UTC', 'title': 'A', 'status': 'done'},
+                 {'due': day.timestamp() + 100, 'timezone': 'UTC', 'title': 'B', 'enabled': False}]
+        rows, counts = agenda_view(items, 'calendar', calendar_day=day.date(), now=day.timestamp() + 86400)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(counts['calendar'], 2)
+
+    def test_agenda_search_applies_to_tab_counts_and_category(self):
+        items = [{'due': 1, 'timezone': 'UTC', 'title': 'Enviar relatório', 'category': 'Trabalho'},
+                 {'due': 2, 'timezone': 'UTC', 'title': 'Pagar conta', 'category': 'Pessoal'}]
+        rows, counts = agenda_view(items, 'overdue', query='TRABALHO', now=3)
+        self.assertEqual([row['title'] for row in rows], ['Enviar relatório'])
+        self.assertEqual(counts['all'], 1)
+
+    def test_agenda_counts_do_not_modify_records_or_queue_notifications(self):
+        identity = self.reminder()
+        before = self.store.get('reminder', identity)
+        agenda_view(self.store.records('reminder'), 'overdue', now=1001)
+        self.assertEqual(self.store.get('reminder', identity), before)
+        self.assertEqual(self.store.deliveries(), [])
+
+    def test_agenda_elapsed_time(self):
+        item = {'due': 1000}
+        self.assertIn('menos de 1 minuto', overdue_text(item, 1001))
+        self.assertIn('1 min', overdue_text(item, 1061))
+        self.assertIn('1 h e 1 min', overdue_text(item, 1000 + 3660))
+        self.assertIn('1 dia', overdue_text(item, 1000 + 86400))
+
+    def test_agenda_invalid_filter(self):
+        with self.assertRaises(ValueError):
+            agenda_view([], 'invalid')
 
     def test_recurring_schedule_skips_missed_days(self):
         identity = self.reminder(repeat='daily')
@@ -233,6 +301,77 @@ class CoreTests(unittest.TestCase):
         with patch.object(self.engine, 'tick'):
             self.engine.save_asset({**self.asset, 'symbol': 'GBP-BRL'})
         self.assertEqual(self.store.quote(self.asset['id']), {})
+
+    def test_financial_code_edits_drop_previous_asset_data(self):
+        for kind, old, new, unit in [('fx', 'USD-BRL', 'EUR-BRL', 'BRL'),
+                                     ('crypto', 'BTC-USD', 'ETH-EUR', 'EUR'),
+                                     ('stock', 'PETR4', 'VALE3', 'BRL')]:
+            with self.subTest(kind=kind), patch.object(self.engine, 'tick'):
+                identity = self.engine.save_asset({'kind': kind, 'symbol': old, 'name': 'Nome personalizado'})
+                previous = {**self.store.get('asset', identity), 'id': identity}
+                self.store.save_quote(identity, {'value': 123, 'fetched_at': 1000})
+                self.engine.save_asset({**previous, 'symbol': new.lower()})
+                current = {**self.store.get('asset', identity), 'id': identity}
+                self.assertEqual(current['symbol'], new)
+                self.assertEqual(current['name'], 'Nome personalizado')
+                self.assertEqual(self.store.quote(identity), {})
+                self.assertEqual(self.store.history(identity), [])
+                self.engine._accept_quote(previous, {'value': 999, 'fetched_at': 1001})
+                self.assertEqual(self.store.quote(identity), {})
+                with patch.object(self.engine, '_submit'):
+                    self.engine._accept_quote(current, {'value': 42, 'unit': unit, 'fetched_at': 1002})
+                self.assertEqual(self.store.quote(identity)['unit'], unit)
+
+    def test_weather_label_uses_at_most_three_city_initials(self):
+        for city, expected in [('Vitória da Conquista, Bahia, Brasil', 'VDC'), ('São Paulo, Brasil', 'SP'),
+                               ('Belo Horizonte', 'BH'), ('Salvador', 'SAL'), ('Brasília', 'BRA'),
+                               ('Águas de São Pedro', 'ADS'), ('', 'CLI')]:
+            self.assertEqual(weather_symbol(city), expected)
+        self.assertLessEqual(len(weather_symbol('x' * 80)), 3)
+
+    def test_weather_label_limit_is_enforced_in_model(self):
+        asset = {'kind': 'weather', 'name': 'Vitória da Conquista', 'latitude': -14.86, 'longitude': -40.84}
+        self.assertEqual(validate_asset(asset)['symbol'], 'VDC')
+        self.assertEqual(validate_asset({**asset, 'symbol': ' vc '})['symbol'], 'VC')
+        for symbol in ('ABCD', 'VITÓRIA DA CONQUISTA', 'V1C', 'V-C'):
+            with self.assertRaises(ValueError):
+                validate_asset({**asset, 'symbol': symbol})
+        self.assertEqual(validate_asset({'kind': 'fx', 'symbol': 'USD-BRL'})['symbol'], 'USD-BRL')
+        self.assertEqual(validate_asset({'kind': 'stock', 'symbol': 'PETR4'})['symbol'], 'PETR4')
+
+    def test_legacy_long_weather_label_is_shortened_without_losing_data(self):
+        asset = next(row for row in self.store.records('asset') if row['kind'] == 'weather')
+        old = {**asset, 'name': 'Vitória da Conquista, Bahia, Brasil', 'symbol': 'VITÓRIA DA CONQUISTA'}
+        self.store.put('asset', asset['id'], old)
+        self.store.save_quote(asset['id'], {'value': 22, 'unit': '°C', 'fetched_at': 1000})
+        settings = self.store.settings()
+        migrated = Store(self.folder.name)
+        self.assertEqual(migrated.get('asset', asset['id']), {key: ('VDC' if key == 'symbol' else value) for key, value in old.items() if key != 'id'})
+        self.assertEqual(migrated.quote(asset['id'])['value'], 22)
+        self.assertEqual(migrated.settings(), settings)
+        self.assertEqual(migrated.get('meta', 'weather_labels_before_shortening')[asset['id']], old['symbol'])
+        self.store.put('asset', asset['id'], {**old, 'symbol': 'VC'})
+        self.assertEqual(Store(self.folder.name).get('asset', asset['id'])['symbol'], 'VC')
+
+    def test_weather_label_edit_preserves_weather_and_accepts_inflight_quote(self):
+        asset = next(row for row in self.store.records('asset') if row['kind'] == 'weather')
+        self.store.save_quote(asset['id'], {'value': 22, 'unit': '°C', 'fetched_at': 1000})
+        with patch.object(self.engine, 'tick'):
+            self.engine.save_asset({**asset, 'symbol': 'VDC'})
+        self.assertEqual(self.store.quote(asset['id'])['value'], 22)
+        self.assertTrue(self.store.history(asset['id']))
+        self.engine._accept_quote(asset, {'value': 23, 'unit': '°C', 'fetched_at': 1001})
+        self.assertEqual(self.store.quote(asset['id'])['value'], 23)
+
+    def test_weather_city_edit_discards_previous_city_weather(self):
+        asset = next(row for row in self.store.records('asset') if row['kind'] == 'weather')
+        self.store.save_quote(asset['id'], {'value': 22, 'fetched_at': 1000})
+        with patch.object(self.engine, 'tick'):
+            self.engine.save_asset({**asset, 'latitude': -14.86, 'longitude': -40.84,
+                                    'name': 'Vitória da Conquista', 'symbol': 'VDC'})
+        self.engine._accept_quote(asset, {'value': 99, 'fetched_at': 1001})
+        self.assertEqual(self.store.quote(asset['id']), {})
+        self.assertEqual(self.store.history(asset['id']), [])
 
     def test_closed_or_changed_asset_ignores_inflight_result(self):
         self.store.delete('asset', self.asset['id'])

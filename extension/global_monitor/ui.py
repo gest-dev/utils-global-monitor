@@ -16,7 +16,9 @@ from gi.repository import Adw, Gdk, Gio, GLib, Graphene, Gtk, Pango
 from . import VERSION
 from .engine import validate_alert, validate_integration
 from .city_search import CitySearch
-from .store import COLORS, DEFAULTS, finite, system_zone, validate_asset
+from .charts import ChartPanel
+from .agenda import FILTERS as AGENDA_FILTERS, STATUSES, agenda_view, overdue_text, reminder_status
+from .store import COLORS, DEFAULTS, finite, system_zone, validate_asset, weather_symbol
 
 ROOT = Path(__file__).resolve().parents[1]
 ICON_SCALE = 1.0
@@ -194,7 +196,7 @@ class MonitorWindow(Adw.ApplicationWindow):
                                                   Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self._preview = None
         self._nav = {}
-        self._agenda_mode, self._agenda_query = 0, ''
+        self._agenda_mode, self._agenda_query = 'today', ''
         self._calendar_day = datetime.now().date()
         self.apply_appearance()
         root = box(spacing=0)
@@ -208,7 +210,9 @@ class MonitorWindow(Adw.ApplicationWindow):
         sidebar = box(spacing=6, width_request=182, margin_top=16, margin_bottom=16, margin_start=12, margin_end=12)
         sidebar.add_css_class('sidebar')
         brand = box(False, 10, margin_start=8, margin_bottom=20)
-        brand.append(icon('globe', 30))
+        logo = Gtk.Image.new_from_gicon(Gio.FileIcon.new(Gio.File.new_for_path(str(ROOT / 'icons/monitor-global-logo-v1.png'))))
+        logo.set_pixel_size(36)
+        brand.append(logo)
         brand.append(label('GLOBAL', 'brand'))
         sidebar.append(brand)
         for key, title, image in PAGES:
@@ -231,6 +235,30 @@ class MonitorWindow(Adw.ApplicationWindow):
         horizontal.append(self._toast)
         self.content = None
         self.navigate('overview')
+        self._agenda_timer = GLib.timeout_add_seconds(5, self._agenda_clock_tick)
+        self.connect('close-request', self._stop_agenda_clock)
+
+    def _stop_agenda_clock(self, *_args):
+        if self._agenda_timer:
+            GLib.source_remove(self._agenda_timer)
+            self._agenda_timer = 0
+        return False
+
+    def _agenda_clock_tick(self):
+        if self.page == 'agenda':
+            now = time.time()
+            rows = self.store.records('reminder')
+            key = self._agenda_clock_signature(rows, now)
+            if key != getattr(self, '_agenda_clock_key', None):
+                adjustment = self._scroll.get_vadjustment()
+                offset = adjustment.get_value()
+                self.render_agenda_list()
+                adjustment.set_value(offset)
+        return GLib.SOURCE_CONTINUE
+
+    @staticmethod
+    def _agenda_clock_signature(rows, now):
+        return (int(now // 60), tuple((row['id'], row['due'], reminder_status(row, now)) for row in rows))
 
     def toast(self, message):
         self._toast.add_toast(Adw.Toast.new(message))
@@ -272,6 +300,14 @@ class MonitorWindow(Adw.ApplicationWindow):
             .global-monitor .negative {{ color: {'#fb7185' if dark else '#b42338'}; }}
             .global-monitor .warning {{ color: {'#fbbf24' if dark else '#956400'}; }}
             .global-monitor .bar-preview {{ background: {'#050b07' if dark else '#e4eee7'}; border-radius: 10px; padding: 12px; }}
+            .global-monitor .agenda-tab {{ border-radius: 10px; padding: 9px 12px; }}
+            .global-monitor .agenda-tab:checked {{ background: alpha({accent}, 0.18); color: {accent}; }}
+            .global-monitor .status-badge {{ border-radius: 12px; padding: 5px 10px; font-weight: 700; }}
+            .global-monitor .status-overdue {{ background: alpha(#fb7185, 0.15); color: {'#fb7185' if dark else '#b42338'}; }}
+            .global-monitor .status-pending {{ background: alpha(#60a5fa, 0.15); color: {'#60a5fa' if dark else '#1d4ed8'}; }}
+            .global-monitor .status-notified {{ background: alpha(#fbbf24, 0.15); color: {'#fbbf24' if dark else '#956400'}; }}
+            .global-monitor .status-done {{ background: alpha(#4ade80, 0.15); color: {'#4ade80' if dark else '#16713a'}; }}
+            .global-monitor .status-paused {{ background: alpha(#9ca3af, 0.15); color: {muted}; }}
             {colors}
         ''')
         Gtk.Settings.get_default().set_property('gtk-enable-animations', settings['animations'])
@@ -475,15 +511,21 @@ class MonitorWindow(Adw.ApplicationWindow):
                 name.set_text(city['name'])
                 latitude.set_text(str(city['latitude']))
                 longitude.set_text(str(city['longitude']))
-                if not existing:
-                    symbol.set_text(city['name'].split(',')[0][:12].upper())
+                symbol.set_text(weather_symbol(city['name']))
                 form.error.set_text('')
             form.city_search = CitySearch(self.background, selected, existing)
             form.body.append(form.city_search)
             form.connect('close-request', lambda _window: form.city_search.close() or False)
             form.connect('unrealize', lambda _window: form.city_search.close())
         name = form.entry('Nome na janela', item.get('name', '')) if kind == 'weather' else form.entry('Nome', item.get('name', ''))
-        symbol = form.entry('Rótulo na barra' if kind == 'weather' else 'Código / par', item.get('symbol', {'fx': 'USD-BRL', 'crypto': 'BTC-USD', 'stock': 'PETR4', 'weather': 'CLIMA'}[kind]))
+        initial_symbol = item.get('symbol', {'fx': 'USD-BRL', 'crypto': 'BTC-USD', 'stock': 'PETR4', 'weather': 'CLI'}[kind])
+        if kind == 'weather' and (len(initial_symbol) > 3 or not initial_symbol.isalpha()):
+            initial_symbol = weather_symbol(item.get('name', ''))
+        symbol = form.entry('Rótulo na barra' if kind == 'weather' else 'Código / par', initial_symbol)
+        if kind == 'weather':
+            symbol.get_delegate().set_max_length(3)
+        form.help('Sigla de até 3 letras, gerada ao selecionar a cidade (ex.: VDC). Você pode personalizá-la.'
+                  if kind == 'weather' else 'O código/par identifica o ativo consultado e aparece na barra. O nome é personalizável.')
         provider = currency = None
         if kind == 'stock':
             provider = form.choice('Fonte', ['brapi · B3', 'Alpha Vantage · outros mercados'], 1 if item.get('provider') == 'alpha' else 0)
@@ -516,15 +558,30 @@ class MonitorWindow(Adw.ApplicationWindow):
         return form
 
     def asset_details(self, identity):
+        active = getattr(self, '_detail_form', None)
+        if active:
+            if getattr(active, '_asset_id', None) == identity:
+                active.present()
+                return active
+            active.close()
         item = next((row for row in self.engine.state(history=True)['assets'] if row['id'] == identity), None)
         if not item:
             return
         form = Form(self, item['name'], 'Fechar')
+        form._asset_id = identity
+        self._detail_form = form
+        def closed(_window):
+            if self._detail_form is form:
+                self._detail_form = None
+            return False
+        form.connect('close-request', closed)
+        form.set_default_size(820, 760)
         quote = item['quote']
-        form.body.append(icon(item['kind'], 40))
-        form.body.append(label(money(quote.get('value'), quote.get('unit', '')), 'title-1'))
+        headline = box(False, 14)
+        headline.append(icon(item['kind'], 36))
+        headline.append(label(money(quote.get('value'), quote.get('unit', '')), 'title-1'))
+        form.body.append(headline)
         form.help(f"{quote.get('source', 'Aguardando fonte')} · Dado de {stamp(quote.get('stamp'))}")
-        form.help(quote.get('note', ''))
         if quote.get('error'):
             form.error.set_text(quote['error'])
         if item['kind'] == 'weather' and quote.get('forecast'):
@@ -533,12 +590,11 @@ class MonitorWindow(Adw.ApplicationWindow):
             for index, day in enumerate(daily['time']):
                 form.body.append(label(f"{day}  ·  {daily['temperature_2m_min'][index]} a {daily['temperature_2m_max'][index]} °C  ·  Chuva {daily['precipitation_probability_max'][index]}%", wrap=True))
         else:
-            form.body.append(label('Histórico diário da fonte' if quote.get('series') else 'Histórico coletado neste computador', 'heading'))
-            form.body.append(Sparkline(item.get('history', []), self.store.settings()['colors'][item['kind']], 160))
-            points = item.get('history', [])
-            if points:
-                form.help(f"Período: {stamp(points[0][0])} a {stamp(points[-1][0])}.")
-            form.help('Quando o histórico da fonte não está disponível, o gráfico usa as consultas registradas neste computador.')
+            unit = quote.get('unit') or item.get('currency') or (item['symbol'].split('-')[-1] if item['kind'] in ('fx', 'crypto') else 'BRL')
+            form.chart_panel = ChartPanel(self, item, lambda value: money(value, unit))
+            form.body.append(form.chart_panel)
+            form.connect('close-request', lambda _window: form.chart_panel.close() or False)
+            form.connect('unrealize', lambda _window: form.chart_panel.close())
             if quote.get('ask') is not None:
                 form.help('Venda de referência: ' + money(quote['ask'], quote.get('unit', '')))
             form.body.append(button('Criar alerta para este indicador', lambda: (form.close(), self.alert_form(asset_id=identity))))
@@ -553,25 +609,39 @@ class MonitorWindow(Adw.ApplicationWindow):
                         converted.set_text('Informe um valor numérico.')
                 amount.connect('changed', convert)
                 convert()
+        form.help(quote.get('note', ''))
         form.present()
+        return form
 
     def agenda_page(self):
         self.heading('Sua agenda', 'Compromissos e lembretes, com aviso no Ubuntu e destinos opcionais.', self.reminder_form, 'Novo lembrete')
-        toolbar = box(False, 10)
-        modes = ['Hoje', 'Próximos', 'Todos', 'Concluídos', 'Calendário']
-        self._agenda_filter = Gtk.DropDown.new_from_strings(modes)
-        self._agenda_filter.set_selected(self._agenda_mode)
-        self._agenda_filter.connect('notify::selected', self._filter_agenda)
-        toolbar.append(self._agenda_filter)
-        self._agenda_search = Gtk.SearchEntry(placeholder_text='Pesquisar lembretes…', hexpand=True)
+        tabs = box(False, 6)
+        self._agenda_buttons = {}
+        first = None
+        for key, title in AGENDA_FILTERS:
+            control = Gtk.ToggleButton(label=title, css_classes=['agenda-tab'])
+            if first:
+                control.set_group(first)
+            else:
+                first = control
+            control.set_active(self._agenda_mode == key)
+            control.connect('toggled', lambda widget, mode=key: self._select_agenda(mode) if widget.get_active() else None)
+            tabs.append(control)
+            self._agenda_buttons[key] = control
+        tab_scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+                                        vscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_height=True)
+        tab_scroll.set_child(tabs)
+        self.content.append(tab_scroll)
+        self._agenda_search = Gtk.SearchEntry(placeholder_text='Pesquisar título, descrição ou categoria…', hexpand=True)
         self._agenda_search.set_text(self._agenda_query)
         self._agenda_search.connect('search-changed', self._filter_agenda)
-        toolbar.append(self._agenda_search)
-        self.content.append(toolbar)
+        self.content.append(self._agenda_search)
+        self._agenda_summary = label('', 'muted', wrap=True)
+        self.content.append(self._agenda_summary)
         self._calendar = Gtk.Calendar()
         self._calendar.select_day(GLib.DateTime.new_local(self._calendar_day.year, self._calendar_day.month, self._calendar_day.day, 12, 0, 0))
         self._calendar.connect('day-selected', self._calendar_selected)
-        self._calendar.set_visible(self._agenda_mode == 4)
+        self._calendar.set_visible(self._agenda_mode == 'calendar')
         self._calendar.set_halign(Gtk.Align.START)
         self.content.append(self._calendar)
         self._agenda_list = box(spacing=12)
@@ -583,53 +653,59 @@ class MonitorWindow(Adw.ApplicationWindow):
         self._calendar_day = datetime(date.get_year(), date.get_month(), date.get_day_of_month()).date()
         self.render_agenda_list()
 
+    def _select_agenda(self, mode):
+        self._agenda_mode = mode
+        self._calendar.set_visible(mode == 'calendar')
+        self.render_agenda_list()
+
     def _filter_agenda(self, *_args):
-        self._agenda_mode = self._agenda_filter.get_selected()
         self._agenda_query = self._agenda_search.get_text()
-        self._calendar.set_visible(self._agenda_mode == 4)
         self.render_agenda_list()
 
     def render_agenda_list(self):
         while self._agenda_list.get_first_child():
             self._agenda_list.remove(self._agenda_list.get_first_child())
-        now = datetime.now().date()
-        rows = []
-        for item in sorted(self.store.records('reminder'), key=lambda row: row['due']):
-            day = datetime.fromtimestamp(item['due'], ZoneInfo(item['timezone'])).date()
-            done = item.get('status') == 'done'
-            if self._agenda_mode == 0 and (day != now or done):
-                continue
-            if self._agenda_mode == 1 and done:
-                continue
-            if self._agenda_mode == 3 and not done:
-                continue
-            if self._agenda_mode == 4 and day != self._calendar_day:
-                continue
-            if self._agenda_query.casefold() not in (item['title'] + ' ' + item.get('description', '')).casefold():
-                continue
-            rows.append(item)
+        now = time.time()
+        items = self.store.records('reminder')
+        self._agenda_clock_key = self._agenda_clock_signature(items, now)
+        rows, counts = agenda_view(items, self._agenda_mode, self._agenda_query, self._calendar_day, now)
+        self._agenda_visible_ids = [row['id'] for row in rows]
+        for key, title in AGENDA_FILTERS:
+            self._agenda_buttons[key].set_label(f'{title} ({counts[key]})')
+        description = {'today': 'Compromissos ativos de hoje, no fuso de cada lembrete.',
+                       'upcoming': 'Horários futuros de lembretes ativos.',
+                       'overdue': 'Horário ultrapassado e ainda não concluído, mesmo que o aviso já tenha sido gerado.',
+                       'done': 'Lembretes marcados como concluídos.', 'paused': 'Lembretes com os avisos pausados.',
+                       'all': 'Todos os lembretes, incluindo atrasados, pausados e concluídos.',
+                       'calendar': 'Data selecionada no fuso de cada lembrete.'}[self._agenda_mode]
+        self._agenda_summary.set_text(description)
         if not rows:
-            self.empty('Tudo organizado por aqui', 'Nenhum lembrete neste filtro. Crie um usando “Novo lembrete”.', self._agenda_list)
+            self.empty('Nenhum lembrete neste filtro', 'Escolha outra aba, ajuste a busca ou crie um novo lembrete.', self._agenda_list)
         for item in rows:
             area = self.surface(self._agenda_list)
             head = box(False, 12)
             head.append(icon('agenda', 26))
             text = box(spacing=5, hexpand=True)
             text.append(label(item['title'], 'heading', wrap=True))
-            status = 'Concluído' if item.get('status') == 'done' else ('Avisado' if item.get('status') == 'notified' else 'Agendado')
-            if not item.get('enabled', True) and item.get('status') != 'done':
-                status = 'Pausado'
-            text.append(label(f"{stamp(item['due'], item['timezone'])} · {item.get('category', 'Pessoal')} · {status}", 'muted', wrap=True))
+            status = reminder_status(item, now)
+            text.append(label(f"{stamp(item['due'], item['timezone'])} · {item.get('category', 'Pessoal')}", 'muted', wrap=True))
+            if status == 'overdue':
+                text.append(label(overdue_text(item, now), 'negative', wrap=True))
             if item.get('description'):
                 text.append(label(item['description'], wrap=True))
             head.append(text)
+            badge = label(STATUSES[status], 'status-badge status-' + status, valign=Gtk.Align.START)
+            if status == 'overdue':
+                badge.set_tooltip_text('O horário passou e o lembrete ainda não foi concluído.')
+            head.append(badge)
             head.append(button(callback=lambda row=item: self.reminder_form(row), icon_name='document-edit-symbolic'))
             head.append(button(callback=lambda row=item: self.remove('reminder', row['id'], row['title']), icon_name='user-trash-symbolic'))
             area.append(head)
             controls = box(False, 8)
-            controls.append(button('Concluir', lambda row=item: self.finish_reminder(row)))
-            controls.append(button('Adiar 10 min', lambda row=item: self.engine.snooze(row['id'])))
-            controls.append(button('Pausar' if item.get('enabled', True) else 'Retomar', lambda row=item: self.toggle_record('reminder', row)))
+            if status != 'done':
+                controls.append(button('Concluir', lambda row=item: self.finish_reminder(row)))
+                controls.append(button('Adiar 10 min', lambda row=item: self.engine.snooze(row['id'])))
+                controls.append(button('Pausar' if item.get('enabled', True) else 'Retomar', lambda row=item: self.toggle_record('reminder', row)))
             area.append(controls)
 
     def finish_reminder(self, item):

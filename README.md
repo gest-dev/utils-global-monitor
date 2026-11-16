@@ -51,6 +51,19 @@ Clique no resultado com município, estado e país, ajuste o nome/rótulo se des
 e salve. Nenhum resultado é escolhido automaticamente. As coordenadas ficam em
 uma seção opcional. É possível cadastrar e fixar várias cidades.
 
+Ao selecionar outra cidade, inclusive na edição, o nome, as coordenadas e o rótulo
+da barra são atualizados juntos. O rótulo do clima tem **de 1 a 3 letras**: Vitória
+da Conquista → `VDC`, São Paulo → `SP`, Salvador → `SAL`. Para nomes com várias
+palavras, são usadas até três iniciais, incluindo as preposições; para uma palavra,
+até três letras iniciais. Você pode personalizar a sigla respeitando o limite.
+O campo e a validação do cadastro aplicam essa regra. Rótulos antigos longos são
+convertidos ao iniciar o aplicativo; os anteriores ficam registrados nos metadados
+locais para referência. O nome completo permanece na janela e no tooltip da barra.
+Alterar somente o rótulo preserva os dados meteorológicos; trocar as coordenadas
+descarta o tempo da cidade anterior. Em moedas, cripto e bolsa, o campo **Código /
+par** determina a consulta e a identificação na barra; o nome é personalizável.
+Trocar o código descarta preços e histórico do ativo anterior.
+
 **Usar localização do Ubuntu** é opcional e aparece quando o GeoClue está disponível
 (`gir1.2-geoclue-2.0`). O botão solicita uma localização aproximada em nível de cidade,
 respeitando a autorização do Ubuntu. É uma captura única, sem acompanhamento contínuo.
@@ -64,11 +77,32 @@ O intervalo preferido padrão é 5 min; as fontes podem atualizar mais lentament
 O Alpha Vantage tem um teto local de 25 chamadas/dia, compartilhado pelos ativos
 deste aplicativo. A cota real também considera outros aplicativos usando a chave.
 
-O histórico diário gratuito é carregado quando disponível para câmbio, cripto
-em mercado direto e brapi. Quando não disponível, o gráfico usa amostras locais
-reais. Não são inventados preços passados nem taxas históricas de conversão BRL.
-Até 500 amostras locais são mantidas por indicador. A previsão do tempo fica nos
-detalhes do clima.
+Passe o mouse sobre um valor da barra para ver nome, fonte, horário e situação.
+Clique no valor para abrir a aplicação na página do ativo, com o modal de detalhes.
+A seta à direita abre o menu geral; os ativos no menu também abrem seus detalhes.
+Cliques repetidos no mesmo ativo reaproveitam a janela e o modal.
+
+O gráfico oferece **7 dias, 1 mês, 3 meses, 6 meses e 1 ano**, com agrupamento
+**diário, semanal ou mensal** pelo último fechamento disponível de cada intervalo.
+Mostra os eixos de data/valor, mínimo, máximo, variação entre os pontos exibidos e
+data/valor ao passar o mouse. O período realmente disponível e a fonte ficam visíveis.
+O botão de atualização consulta novamente; o cache é separado por ativo e período
+(15 min; 6 h para Alpha Vantage) e invalidado quando o código muda.
+
+Histórico de câmbio: AwesomeAPI até 6 meses; para 1 ano, referências diárias
+Frankfurter, que podem diferir da cotação atual. Cripto: fechamentos da Coinbase
+em mercado direto, com paginação para o ano completo. B3: brapi conforme a cobertura
+e o plano; PETR4 anual foi validado sem chave. Alpha Vantage: chave gratuita e
+cota compartilhada, fechamentos diários até 3 meses e mensais para 6 meses/1 ano.
+Não é necessário contratar planos para usar o aplicativo.
+
+Quando a fonte não oferece o histórico, o modal informa a limitação e usa apenas
+amostras locais reais dentro do período. Não são inventados preços passados nem
+taxas históricas de conversão BRL. Até 500 amostras locais são mantidas por indicador.
+A previsão do tempo fica nos detalhes do clima.
+
+Também é possível abrir um ativo pelo identificador com `python3 abrir.py --asset=ID`.
+O serviço local oferece o método D-Bus `OpenAsset` para a mesma navegação.
 
 Em falhas, o valor anterior é preservado e marcado na janela; o menu da barra
 informa fontes indisponíveis. As referências podem refletir o último pregão e
@@ -79,8 +113,23 @@ conexão com corretora nem recomendação de investimento.
 
 Crie lembretes com título, descrição, data, horário, categoria, fuso horário,
 antecedência e repetição: única, diária, semanal, dias úteis ou mensal.
-O padrão segue o fuso do sistema. A agenda oferece Hoje, Próximos, Todos,
-Concluídos, Calendário e busca. É possível editar, concluir, pausar e adiar.
+O padrão segue o fuso do sistema. A agenda oferece abas **Hoje, Próximos, Atrasados,
+Concluídos, Pausados, Todos e Calendário**, com contadores e busca por título,
+descrição ou categoria. É possível editar, concluir, pausar e adiar.
+
+Os cartões mostram status com cores: **Agendado**, **Aviso gerado**, **Atrasado**,
+**Concluído** e **Pausado**. Ao passar do horário, um lembrete ativo não concluído
+aparece em Atrasados, inclusive quando seu aviso já foi gerado. A geração do aviso
+não marca a tarefa como concluída nem comprova entrega a um destino externo.
+Lembretes pausados e concluídos ficam nas abas correspondentes. Próximos mostra
+apenas horários futuros; Hoje respeita o fuso de cada lembrete. Os contadores
+acompanham a busca. A aba Calendário permite consultar uma data específica.
+
+Com a agenda aberta, o relógio é verificado a cada 5 segundos e a lista é atualizada
+ao vencer um horário, preservando a aba e a busca. Atrasados também mostra há quanto
+tempo o lembrete venceu. Não é necessário reabrir a janela ou aguardar as cotações.
+Em lembretes recorrentes, o agendamento segue mostrando a próxima ocorrência
+calculada pelo serviço; o filtro usa o horário atual desse agendamento.
 
 O serviço verifica agendamentos a cada 5 s e continua ativo ao fechar a janela.
 Notificações nativas permitem abrir o monitor, concluir o aviso e adiar 10 min.
@@ -127,6 +176,11 @@ WhatsApp simuladas. Não houve envio real de WhatsApp ou a terceiros.
 ## Aparência e dados locais
 
 Visual escuro com destaque verde, cartões, gráficos e ícones SVG originais.
+O logo do aplicativo usa verde, fundo escuro e um gráfico branco sobre um globo.
+O PNG original com transparência está em `extension/icons/monitor-global-logo-v1.png`;
+é usado na marca da janela, no atalho do Ubuntu e nas notificações. A geração foi
+feita com image_gen; o prompt está em `branding/prompt-logo-v1.txt`. O SVG anterior
+foi preservado, assim como os ícones simbólicos dos módulos.
 Temas claro/escuro/sistema, cores por módulo, fonte e ícones da janela e da barra,
 espaçamento, formatos, variação e quantidade de indicadores são configuráveis.
 Perfis Trabalho, Mercado e Viagem ajustam os favoritos. Há prévia da barra e

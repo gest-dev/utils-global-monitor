@@ -19,6 +19,7 @@ from global_monitor.store import Store
 INTERFACE = f'''<node><interface name="{APP_ID}">
 <method name="GetState"><arg type="s" direction="out" name="json"/></method>
 <method name="OpenWindow"><arg type="s" direction="in" name="page"/></method>
+<method name="OpenAsset"><arg type="s" direction="in" name="identity"/></method>
 <method name="Refresh"/>
 <signal name="StateChanged"><arg type="s" name="json"/></signal>
 </interface></node>'''
@@ -60,6 +61,14 @@ class Application(Adw.Application):
         if '--quit' in args:
             self.quit()
             return 0
+        identity = next((arg.split('=', 1)[1] for arg in args if arg.startswith('--asset=')), None)
+        if identity is not None:
+            try:
+                self.open_asset(identity)
+                return 0
+            except ValueError as error:
+                command.printerr(str(error) + '\n')
+                return 1
         if '--service' not in args:
             self.page = next((arg.split('=', 1)[1] for arg in args if arg.startswith('--page=')), 'overview')
             self.activate()
@@ -81,6 +90,13 @@ class Application(Adw.Application):
         self.window = None
         return False
 
+    def open_asset(self, identity):
+        asset = self.store.get('asset', identity)
+        if not asset:
+            raise ValueError('Indicador não encontrado. Atualize a barra e tente novamente.')
+        self.open_page(asset['kind'])
+        return self.window.asset_details(identity)
+
     def _dbus_call(self, _connection, _sender, _path, _interface, method, params, invocation):
         try:
             if method == 'GetState':
@@ -90,6 +106,9 @@ class Application(Adw.Application):
                 invocation.return_value(None)
             elif method == 'Refresh':
                 self.engine.tick()
+                invocation.return_value(None)
+            elif method == 'OpenAsset':
+                self.open_asset(params.unpack()[0])
                 invocation.return_value(None)
         except Exception as error:
             invocation.return_dbus_error(APP_ID + '.Error', str(error))
@@ -121,7 +140,8 @@ class Application(Adw.Application):
             actions += ['snooze', 'Adiar 10 min', 'done', 'Concluir aviso']
         hints = {'desktop-entry': GLib.Variant('s', APP_ID), 'urgency': GLib.Variant('y', 1),
                  'suppress-sound': GLib.Variant('b', not self.store.settings()['sound'])}
-        params = GLib.Variant('(susssasa{sv}i)', ('Monitor Global', 0, 'org.gezer.MonitorGlobal',
+        logo = str(Path(__file__).parent / 'icons/monitor-global-logo-v1.png')
+        params = GLib.Variant('(susssasa{sv}i)', ('Monitor Global', 0, logo,
             GLib.markup_escape_text(payload['title']), GLib.markup_escape_text(body), actions, hints, 0))
 
         def sent(proxy, result):

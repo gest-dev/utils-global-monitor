@@ -11,6 +11,7 @@ import re
 import sqlite3
 import time
 import uuid
+import unicodedata
 from zoneinfo import ZoneInfo
 
 COLORS = {'fx': '#60a5fa', 'crypto': '#fbbf24', 'stock': '#4ade80',
@@ -70,6 +71,15 @@ def next_occurrence(due, repeat, now, timezone, anchor_day=None, anchor_time=Non
     raise ValueError('Não foi possível calcular a próxima ocorrência.')
 
 
+def weather_symbol(name):
+    """At most three letters: VDC for Vitória da Conquista, SP for São Paulo."""
+    city = unicodedata.normalize('NFKD', str(name).split(',')[0]).upper()
+    words = re.findall(r'[A-Z]+', ''.join(char for char in city if not unicodedata.combining(char)))
+    if not words:
+        return 'CLI'
+    return (words[0] if len(words) == 1 else ''.join(word[0] for word in words))[:3]
+
+
 def validate_asset(data):
     allowed = ('id', 'kind', 'name', 'symbol', 'pinned', 'enabled', 'position', 'provider', 'currency', 'latitude', 'longitude')
     item = {key: deepcopy(value) for key, value in data.items() if key in allowed}
@@ -91,7 +101,9 @@ def validate_asset(data):
         item['latitude'], item['longitude'] = finite(item['latitude']), finite(item['longitude'])
         if not -90 <= item['latitude'] <= 90 or not -180 <= item['longitude'] <= 180:
             raise ValueError('Coordenadas inválidas.')
-        item['symbol'] = item.get('symbol') or 'CLIMA'
+        item['symbol'] = item.get('symbol') or weather_symbol(item['name'])
+        if len(item['symbol']) > 3 or not item['symbol'].isalpha():
+            raise ValueError('O rótulo do clima deve ter de 1 a 3 letras (ex.: VDC).')
     item['name'] = item['name'] or item['symbol']
     item['pinned'] = bool(item.get('pinned', False))
     item['enabled'] = bool(item.get('enabled', True))
@@ -128,11 +140,29 @@ class Store:
                 {'kind': 'fx', 'symbol': 'EUR-BRL', 'name': 'Euro', 'pinned': True},
                 {'kind': 'crypto', 'symbol': 'BTC-USD', 'name': 'Bitcoin', 'pinned': True},
                 {'kind': 'stock', 'symbol': 'PETR4', 'name': 'Petrobras PN', 'provider': 'brapi'},
-                {'kind': 'weather', 'symbol': 'SP', 'name': 'São Paulo, Brasil',
+                {'kind': 'weather', 'symbol': weather_symbol('São Paulo'), 'name': 'São Paulo, Brasil',
                  'latitude': -23.5505, 'longitude': -46.6333, 'pinned': True},
             ]):
                 self.put('asset', str(uuid.uuid4()), {**validate_asset(item), 'position': index})
             self.put('meta', 'initialized', {'version': 1})
+        self._shorten_weather_labels()
+
+    def _shorten_weather_labels(self):
+        """Upgrade legacy long labels without changing weather, identities or preferences."""
+        with self.db() as db:
+            previous = {}
+            for row in db.execute("SELECT id,data FROM records WHERE kind='asset'").fetchall():
+                item = json.loads(row['data'])
+                old = str(item.get('symbol') or '')
+                if item.get('kind') != 'weather' or (1 <= len(old) <= 3 and old.isalpha()):
+                    continue
+                previous[row['id']] = old
+                item['symbol'] = weather_symbol(item.get('name', ''))
+                db.execute("UPDATE records SET data=? WHERE kind='asset' AND id=?",
+                           (json.dumps(item, ensure_ascii=False), row['id']))
+            if previous:
+                db.execute("INSERT OR IGNORE INTO records VALUES ('meta','weather_labels_before_shortening',?)",
+                           (json.dumps(previous, ensure_ascii=False),))
 
     @contextmanager
     def db(self):
@@ -168,6 +198,7 @@ class Store:
             if kind == 'asset':
                 db.execute('DELETE FROM quotes WHERE id=?', (identity,))
                 db.execute('DELETE FROM samples WHERE id=?', (identity,))
+                db.execute("DELETE FROM records WHERE kind='chart' AND substr(id,1,?)=?", (len(identity) + 1, identity + ':'))
         if kind == 'reminder':
             with self.db() as db:
                 for row in db.execute("SELECT id,data FROM deliveries WHERE state IN ('pending','sending')").fetchall():

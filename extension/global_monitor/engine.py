@@ -13,6 +13,13 @@ from . import providers
 from .store import DEFAULTS, finite, validate_asset
 
 
+def quote_identity(asset):
+    keys = ('kind', 'provider', 'currency', 'latitude', 'longitude')
+    if asset['kind'] != 'weather':
+        keys += ('symbol',)
+    return tuple(asset.get(key) for key in keys)
+
+
 def validate_integration(data):
     item = deepcopy(data)
     item['name'] = str(item.get('name', '')).strip()[:100]
@@ -158,15 +165,16 @@ class Engine:
 
     def _accept_quote(self, asset, quote):
         current = self.store.get('asset', asset['id'])
-        if not current or any(current.get(key) != asset.get(key) for key in ('kind', 'symbol', 'provider', 'currency', 'latitude', 'longitude')):
+        if not current or quote_identity(current) != quote_identity(asset):
             return
+        current['id'] = asset['id']
         previous = self.store.quote(asset['id'])
         for key in ('series', 'history_checked'):
             if key in previous:
                 quote.setdefault(key, previous[key])
         self.store.save_quote(asset['id'], quote)
         if not quote.get('error') and quote.get('value') is not None:
-            self._alerts(asset, quote)
+            self._alerts(current, quote)
             if asset['kind'] != 'weather' and asset.get('provider') != 'alpha' and time.time() - quote.get('history_checked', 0) >= 21600:
                 self._submit('history:' + asset['id'], self._history, asset)
         self.changed()
@@ -228,7 +236,7 @@ class Engine:
         previous = self.store.get('asset', identity)
         item.setdefault('position', len(assets))
         self.store.put('asset', identity, item)
-        if previous and any(previous.get(key) != item.get(key) for key in ('kind', 'symbol', 'provider', 'currency', 'latitude', 'longitude')):
+        if previous and quote_identity(previous) != quote_identity(item):
             with self.store.db() as db:
                 db.execute('DELETE FROM quotes WHERE id=?', (identity,))
                 db.execute('DELETE FROM samples WHERE id=?', (identity,))
