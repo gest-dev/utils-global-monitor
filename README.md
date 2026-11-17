@@ -1,4 +1,16 @@
-# Monitor Global
+<p align="center">
+  <img src="extension/icons/monitor-global-logo-v1.png" width="88" alt="Ícone do Monitor Global">
+</p>
+
+# 🌍 Monitor Global
+
+![Monitor Global: mercado, clima e agenda](docs/banner.svg)
+
+**Seu painel pessoal de informações e lembretes, integrado ao Ubuntu.**
+
+[Prints](#-em-funcionamento) · [Começar](#-instalar-e-abrir) · [Indicadores](#-escolher-o-que-acompanhar) · [Agenda](#-agenda-e-notificações) · [Integrações](#-apis-externas-opcionais) · [Aparência e dados](#-aparência-e-dados-locais) · [Ajuda](#-dúvidas-e-soluções)
+
+---
 
 Aplicativo nativo e extensão para **Ubuntu/GNOME 50**, com moedas, cripto, bolsa,
 clima, agenda, alertas e notificações. Projeto independente do `sys-monitor`,
@@ -7,7 +19,45 @@ com UUID próprio: `utils-global-monitor@gezer.local`.
 Não requer Node.js, navegador, servidor remoto ou pacotes pip. A barra usa GJS;
 a janela e o serviço local usam Python 3, GTK 4 e libadwaita.
 
-## Instalar e abrir
+## ✨ Tudo em uma janela
+
+| Módulo | O que acompanhar | Na prática |
+| :--- | :--- | :--- |
+| 💱 Moedas | Pares cambiais, variação e conversor. | Fixe os pares de interesse na barra. |
+| 🪙 Cripto | Mercados públicos e gráficos históricos. | Consulte fonte, horário e período disponível. |
+| 📈 Bolsa | Ativos pela brapi ou Alpha Vantage. | Configure chaves quando exigidas pela fonte. |
+| 🌤️ Clima | Várias cidades e previsão de 7 dias. | Use busca, coordenadas ou localização opcional. |
+| 📅 Agenda | Compromissos, recorrência e calendário. | Conclua, pause ou adie um lembrete. |
+| 🔔 Alertas | Limites de valor, variação e chuva. | Escolha condições e intervalo entre avisos. |
+| 🔗 Integrações | Webhook HTTP e WhatsApp oficial. | Ative apenas os destinos desejados. |
+| 🎨 Personalização | Temas, cores, posição e tamanhos. | Monte sua barra e salve as preferências. |
+
+## 📸 Em funcionamento
+
+Capturas da aplicação real em uma sessão GNOME isolada, com a configuração
+inicial, em **17/11/2026**. Os valores refletem o momento da captura;
+as imagens deste documento não se atualizam junto com as fontes.
+
+### Indicadores na janela e na barra
+
+Moedas com fonte e horário da consulta, controles de monitoramento e favoritos.
+Na barra superior, moedas, cripto e clima ficam visíveis durante o uso do desktop.
+
+![Monitor Global na página de moedas, com controles dos ativos e indicadores na barra do GNOME](docs/screenshots/indicadores.png)
+
+<details>
+<summary><strong>Ver o gráfico histórico e os detalhes de um ativo</strong></summary>
+
+### Histórico e comparação
+
+Detalhes do dólar com seleção de período, agrupamento, mínimo, máximo e
+variação entre os pontos disponíveis.
+
+![Detalhes do dólar no Monitor Global com gráfico histórico e seletores de período e agrupamento](docs/screenshots/grafico.png)
+
+</details>
+
+## 🚀 Instalar e abrir
 
 ```bash
 cd /var/www/html/utils-global-monitor
@@ -25,17 +75,26 @@ e entre novamente. A janela pode ser aberta imediatamente pelo comando acima.
 O instalador não encerra sua sessão. Dependências: GNOME 50, GJS, Python 3 com
 PyGObject, GTK 4.10+ e libadwaita 1.4+ (presentes na máquina usada na validação).
 
-## Escolher o que acompanhar
+### Primeiros passos
+
+1. Abra **Monitor Global** e escolha os indicadores que deseja monitorar.
+2. Marque **Mostrar na barra** somente nos seus favoritos e ajuste a ordem.
+3. Cadastre sua cidade em **Clima** e um compromisso em **Agenda**.
+4. Em **Aparência**, escolha tema, posição, letras e ícones.
+5. Configure **Integrações** apenas se desejar consultar fontes com chave ou enviar avisos externos.
+
+> **Após uma atualização:** a janela abre imediatamente; o novo código da barra pode exigir sair e entrar na sessão do Ubuntu. O instalador preserva as outras extensões.
+
+## 📊 Escolher o que acompanhar
 
 - **Moedas:** vários pares, como USD-BRL, EUR-BRL e GBP-BRL; referência de compra,
   venda e variação quando fornecidas pela fonte; conversor na janela de detalhes.
 - **Cripto:** mercados públicos da Coinbase Exchange, como BTC-USD, ETH-USD e
   SOL-USD. Pares em BRL são convertidos do mercado USD com a referência cambial;
   a variação indicada permanece a do mercado USD, identificada nos detalhes.
-- **Bolsa:** B3 pela brapi. PETR4, VALE3, MGLU3 e ITUB4 funcionam sem chave;
-  outros ativos exigem chave gratuita e cobertura do plano. Alpha Vantage permite
-  acompanhar fechamento de outros mercados com chave gratuita e moeda informada
-  no cadastro. Chaves são configuradas em **Integrações**.
+- **Bolsa:** B3 pela brapi e fechamentos de outros mercados pela Alpha Vantage,
+  com moeda informada no cadastro. A necessidade de chave e a disponibilidade dos
+  ativos dependem da fonte e de sua cobertura. Chaves são configuradas em **Integrações**.
 - **Clima:** pesquisa por cidade, estado e país ou coordenadas manuais; temperatura,
   sensação térmica, umidade, vento, probabilidade de chuva e previsão de 7 dias.
   A cidade inicial é São Paulo, identificada explicitamente e substituível.
@@ -43,6 +102,8 @@ PyGObject, GTK 4.10+ e libadwaita 1.4+ (presentes na máquina usada na validaç�
 Em cada indicador, escolha **Monitorar**, **Mostrar na barra**, edite o cadastro
 ou ajuste a ordem pelas setas. Detalhes mostram fonte e data/hora do dado.
 O menu da barra abre a janela, a agenda e a personalização.
+
+### Cidades e localização
 
 Em **Clima → Adicionar cidade**, digite o nome e pressione Enter ou Buscar.
 A pesquisa automática começa com 3 letras, após uma breve pausa. Use, por exemplo,
@@ -71,11 +132,24 @@ Se o serviço estiver desativado, sem permissão ou indisponível, use a busca p
 Uma cidade já cadastrada é preservada em caso de falha. A localização automática
 é salva como “Localização atual”, com nome editável; não é convertida em nome de cidade.
 
-Consultas de câmbio são agrupadas. O serviço mantém cache e respeita intervalos
-mínimos: câmbio 1 min, cripto 2 min, clima 15 min, brapi 30 min e Alpha Vantage 6 h.
+### Frequência e cache
+
+Consultas de câmbio são agrupadas. O serviço mantém cache e respeita os seguintes
+intervalos mínimos locais:
+
+| Fonte | Intervalo mínimo local |
+| :--- | ---: |
+| Câmbio | 1 min |
+| Cripto | 2 min |
+| Clima | 15 min |
+| brapi | 30 min |
+| Alpha Vantage | 6 h |
+
 O intervalo preferido padrão é 5 min; as fontes podem atualizar mais lentamente.
 O Alpha Vantage tem um teto local de 25 chamadas/dia, compartilhado pelos ativos
 deste aplicativo. A cota real também considera outros aplicativos usando a chave.
+
+### Gráficos e detalhes
 
 Passe o mouse sobre um valor da barra para ver nome, fonte, horário e situação.
 Clique no valor para abrir a aplicação na página do ativo, com o modal de detalhes.
@@ -89,12 +163,12 @@ data/valor ao passar o mouse. O período realmente disponível e a fonte ficam v
 O botão de atualização consulta novamente; o cache é separado por ativo e período
 (15 min; 6 h para Alpha Vantage) e invalidado quando o código muda.
 
-Histórico de câmbio: AwesomeAPI até 6 meses; para 1 ano, referências diárias
+Histórico de câmbio: o aplicativo consulta AwesomeAPI até 6 meses; para 1 ano, referências diárias
 Frankfurter, que podem diferir da cotação atual. Cripto: fechamentos da Coinbase
 em mercado direto, com paginação para o ano completo. B3: brapi conforme a cobertura
-e o plano; PETR4 anual foi validado sem chave. Alpha Vantage: chave gratuita e
-cota compartilhada, fechamentos diários até 3 meses e mensais para 6 meses/1 ano.
-Não é necessário contratar planos para usar o aplicativo.
+e o plano. Alpha Vantage: chave e cota compartilhada, fechamentos diários até
+3 meses e mensais para 6 meses/1 ano. As condições de acesso são definidas pelas
+fontes; a aplicação informa limitações quando não consegue obter os dados.
 
 Quando a fonte não oferece o histórico, o modal informa a limitação e usa apenas
 amostras locais reais dentro do período. Não são inventados preços passados nem
@@ -109,13 +183,17 @@ informa fontes indisponíveis. As referências podem refletir o último pregão 
 não são preços garantidos de uma operação. Não há ordens, carteira, custódia,
 conexão com corretora nem recomendação de investimento.
 
-## Agenda e notificações
+## 📅 Agenda e notificações
+
+### Lembretes e recorrência
 
 Crie lembretes com título, descrição, data, horário, categoria, fuso horário,
 antecedência e repetição: única, diária, semanal, dias úteis ou mensal.
 O padrão segue o fuso do sistema. A agenda oferece abas **Hoje, Próximos, Atrasados,
 Concluídos, Pausados, Todos e Calendário**, com contadores e busca por título,
 descrição ou categoria. É possível editar, concluir, pausar e adiar.
+
+### Status e organização
 
 Os cartões mostram status com cores: **Agendado**, **Aviso gerado**, **Atrasado**,
 **Concluído** e **Pausado**. Ao passar do horário, um lembrete ativo não concluído
@@ -131,11 +209,15 @@ tempo o lembrete venceu. Não é necessário reabrir a janela ou aguardar as cot
 Em lembretes recorrentes, o agendamento segue mostrando a próxima ocorrência
 calculada pelo serviço; o filtro usa o horário atual desse agendamento.
 
+### Serviço e avisos
+
 O serviço verifica agendamentos a cada 5 s e continua ativo ao fechar a janela.
 Notificações nativas permitem abrir o monitor, concluir o aviso e adiar 10 min.
 Agendamentos vencidos durante suspensão ou desligamento aparecem ao retornar à
 sessão; recorrências vencidas geram uma ocorrência pendente e avançam para a
 próxima data. Recorrência mensal preserva o dia original quando possível.
+
+### Alertas por condição
 
 **Alertas** acompanham valor/temperatura, variação percentual ou chance de chuva,
 com limite maior/menor e intervalo mínimo entre avisos. Dependem das consultas
@@ -146,7 +228,9 @@ Para avisar com o computador desligado, seria necessário executar o agendamento
 em outro equipamento/servidor. A versão entregue funciona na sessão local.
 Desabilitar apenas o indicador da extensão não encerra o serviço da agenda.
 
-## APIs externas opcionais
+> **Quando os avisos funcionam?** O serviço trabalha na sessão local e continua ao fechar a janela. O computador precisa estar ligado e a sessão disponível; avisos vencidos são processados ao retornar.
+
+## 🔗 APIs externas opcionais
 
 Nenhum destino externo vem configurado ou ativado. Cadastre em **Integrações**,
 ative o destino e selecione-o nos lembretes/alertas desejados. Há botão de teste
@@ -173,13 +257,15 @@ URL. Prefira HTTPS para proteger mensagens e tokens.
 As integrações foram validadas com um servidor HTTP local de teste e requisições
 WhatsApp simuladas. Não houve envio real de WhatsApp ou a terceiros.
 
-## Aparência e dados locais
+## 🎨 Aparência e dados locais
+
+### Temas e identidade visual
 
 Visual escuro com destaque verde, cartões, gráficos e ícones SVG originais.
 O logo do aplicativo usa verde, fundo escuro e um gráfico branco sobre um globo.
 O PNG original com transparência está em `extension/icons/monitor-global-logo-v1.png`;
 é usado na marca da janela, no atalho do Ubuntu e nas notificações. A geração foi
-feita com image_gen; o prompt está em `branding/prompt-logo-v1.txt`. O SVG anterior
+feita com image_gen; o prompt está em [branding/logo-v1-prompt.txt](branding/logo-v1-prompt.txt). O SVG anterior
 foi preservado, assim como os ícones simbólicos dos módulos.
 Temas claro/escuro/sistema, cores por módulo, fonte e ícones da janela e da barra,
 espaçamento, formatos, variação e quantidade de indicadores são configuráveis.
@@ -191,6 +277,8 @@ do relógio** ou **Direita**. A alteração é imediata com a extensão atualiza
 o indicador e seu menu são movidos juntos. A escolha é preservada ao reiniciar a sessão.
 Depois de instalar código novo da extensão, pode ser necessário sair e entrar no Ubuntu.
 
+### Armazenamento e backup
+
 Dados ficam em `${XDG_DATA_HOME:-~/.local/share}/utils-global-monitor/monitor.db`.
 O banco tem permissão 600 e a pasta é privada. Credenciais ficam nesse banco
 local; não há promessa de criptografia do arquivo. O backup JSON exclui os campos
@@ -198,7 +286,41 @@ de chaves/tokens e inclui configurações, indicadores, agenda, alertas e destin
 A importação mescla IDs, valida tudo antes de gravar e deixa os destinos externos
 importados desativados. O histórico da fila é limitado a 2.000 eventos concluídos.
 
-## Desenvolvimento e validação
+> **Credenciais locais:** as chaves e os tokens ficam no SQLite da conta do usuário. O arquivo tem acesso restrito, mas não é um cofre criptografado. A exportação JSON exclui esses campos.
+
+## 🧭 Dúvidas e soluções
+
+| Situação | O que conferir |
+| :--- | :--- |
+| A barra não apareceu ou manteve o visual antigo | Salve o trabalho e saia/entre na sessão para carregar a extensão instalada. A janela continua acessível por `python3 abrir.py`. |
+| Um valor demora para mudar | Confira a fonte, o horário do dado e o intervalo mínimo de consulta. Algumas fontes refletem o último pregão. |
+| O gráfico não cobre todo o período | Veja a disponibilidade informada pela fonte. O aplicativo usa amostras reais, incluindo o histórico local quando necessário. |
+| A cidade tem nome igual ao de outra região | Use o filtro de país e selecione explicitamente o resultado com estado e país corretos. |
+| O lembrete continua em Atrasados após avisar | **Aviso gerado** não conclui a tarefa. Use **Concluir** quando tiver terminado. |
+| Desativei o indicador e os lembretes continuam | A barra e o serviço da agenda têm ciclos separados; desabilitar a extensão não encerra o serviço. |
+| Uma integração mostra Aceito pela API | O servidor aceitou a requisição. Consulte também o serviço externo para verificar a entrega. |
+| Um destino importado não envia | Destinos importados começam desativados e sem chaves/tokens exportados. Revise as credenciais e ative o destino desejado. |
+
+## 🗂️ Mapa do projeto
+
+```text
+utils-global-monitor/
+├── instalar.py               # Instalação, atalho e inicialização da agenda
+├── abrir.py                  # Abre a janela nativa
+├── empacotar.sh              # Testes, validação de sintaxe e pacote
+├── extension/
+│   ├── extension.js          # Indicadores na barra do GNOME
+│   ├── monitor.py            # Entrada da aplicação e do serviço
+│   ├── global_monitor/       # Interface, fontes, agenda, gráficos e banco
+│   └── icons/                # Logo e ícones dos módulos
+├── dist/                     # ZIP instalável
+├── tests/                    # Testes de lógica, interface e HTTP
+├── branding/                 # Registro da identidade visual
+├── docs/                     # Banner e capturas reais em screenshots/
+└── VALIDACAO.md              # Verificações documentadas
+```
+
+## 🛠️ Desenvolvimento e validação
 
 ```bash
 bash empacotar.sh
@@ -221,17 +343,21 @@ fixtures identificadas e isoladas no processo de teste; a aplicação distribuí
 consulta as fontes reais. A captura fica em `/tmp/monitor-global-preview.png`.
 Veja [VALIDACAO.md](VALIDACAO.md).
 
-## Fontes e condições
+## 📚 Fontes e condições
 
 - [AwesomeAPI](https://docs.awesomeapi.com.br/api-de-moedas) — moedas e histórico.
 - [Frankfurter](https://frankfurter.dev/) — referência diária de câmbio como alternativa.
 - [Coinbase Exchange](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-stats) — preços e estatísticas de cripto.
-- [brapi](https://brapi.dev/faq/api-e-gratis-mesmo) — B3, cobertura e planos gratuitos.
-- [Alpha Vantage](https://www.alphavantage.co/support/) — chave gratuita e limite diário.
-- [Open-Meteo](https://open-meteo.com/) — clima, atribuição CC BY 4.0 e API gratuita para uso não comercial.
+- [brapi](https://brapi.dev/faq/api-e-gratis-mesmo) — B3, cobertura e condições de acesso.
+- [Alpha Vantage](https://www.alphavantage.co/support/) — chaves, cobertura e limites.
+- [Open-Meteo](https://open-meteo.com/) — dados meteorológicos, atribuição e condições de uso.
 - [Busca de cidades Open-Meteo](https://open-meteo.com/en/docs/geocoding-api) — geocodificação com dados GeoNames.
 - [GeoClue](https://www.freedesktop.org/software/geoclue/docs/libgeoclue/GClueSimple.html) — localização aproximada opcional do Ubuntu.
 - [WhatsApp Business Platform](https://business.whatsapp.com/products/platform-pricing) — condições de envio e preços.
 
 Fontes gratuitas têm limites e podem alterar condições/cobertura. O aplicativo
 não contrata planos, não paga serviços e não cria contas automaticamente.
+
+---
+
+**Para conferir a implementação:** [fontes de dados](extension/global_monitor/providers.py) · [agenda](extension/global_monitor/agenda.py) · [armazenamento](extension/global_monitor/store.py) · [validação](VALIDACAO.md).
